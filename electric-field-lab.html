@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⚡ 전하 실험실 — Electric Field Lab</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #fff; }
+  #root { min-height: 100vh; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+const W = 800;
+const H = 500;
+const k = 9;
+
+const COLORS = {
+  bg: "#ffffff", panel: "#f8fafc", border: "#e2e8f0", accent: "#2563eb",
+  positive: "#dc2626", negative: "#2563eb", text: "#1e293b", textDim: "#64748b",
+  fieldLine: "#1e293b", energy: "#7c3aed",
+  kinetic: "#059669", canvasBg: "#fdfdfd", gridLine: "rgba(0,0,0,0.04)",
+};
+
+function vecField(charges, x, y) {
+  let ex = 0, ey = 0;
+  for (const c of charges) {
+    const dx = x - c.x, dy = y - c.y;
+    const r2 = dx * dx + dy * dy;
+    if (r2 < 100) continue;
+    const r = Math.sqrt(r2);
+    const e = (k * c.q) / r2;
+    ex += (e * dx) / r; ey += (e * dy) / r;
+  }
+  return [ex, ey];
+}
+
+function potential(charges, x, y) {
+  let v = 0;
+  for (const c of charges) {
+    const dx = x - c.x, dy = y - c.y;
+    const r = Math.sqrt(dx * dx + dy * dy);
+    if (r < 5) return null;
+    v += (k * c.q) / r;
+  }
+  return v;
+}
+
+function drawGrid(ctx, w, h) {
+  ctx.strokeStyle = COLORS.gridLine; ctx.lineWidth = 1;
+  for (let x = 0; x < w; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+  for (let y = 0; y < h; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+}
+
+function drawFieldLines(ctx, charges, w, h) {
+  const steps = 250, ds = 4;
+  for (const c of charges) {
+    if (c.q > 0) {
+      const n = Math.round(Math.abs(c.q) * 4);
+      for (let i = 0; i < n; i++) {
+        const angle = (2 * Math.PI * i) / n;
+        let x = c.x + 18 * Math.cos(angle), y = c.y + 18 * Math.sin(angle);
+        ctx.beginPath(); ctx.moveTo(x, y);
+        for (let s = 0; s < steps; s++) {
+          const [ex, ey] = vecField(charges, x, y);
+          const mag = Math.sqrt(ex*ex+ey*ey);
+          if (mag < 0.01) break;
+          x += (ds*ex)/mag; y += (ds*ey)/mag;
+          if (x<-10||x>w+10||y<-10||y>h+10) break;
+          let nearNeg = false;
+          for (const cc of charges) {
+            if (cc.q<0 && Math.sqrt((x-cc.x)**2+(y-cc.y)**2)<14) { nearNeg=true; break; }
+          }
+          ctx.lineTo(x, y);
+          if (nearNeg) break;
+        }
+        ctx.strokeStyle = COLORS.fieldLine; ctx.lineWidth = 1.5; ctx.stroke();
+        let ax2 = c.x+18*Math.cos(angle), ay2 = c.y+18*Math.sin(angle);
+        for (let s=0; s<40; s++) {
+          const [exx,eyy]=vecField(charges,ax2,ay2);
+          const mag=Math.sqrt(exx*exx+eyy*eyy);
+          if(mag<0.01) break;
+          ax2+=(ds*exx)/mag; ay2+=(ds*eyy)/mag;
+        }
+        if(ax2>0&&ax2<w&&ay2>0&&ay2<h) {
+          const [exx,eyy]=vecField(charges,ax2,ay2);
+          const mag=Math.sqrt(exx*exx+eyy*eyy);
+          if(mag>0.01) {
+            const ang=Math.atan2(eyy,exx);
+            ctx.beginPath();
+            ctx.moveTo(ax2+6*Math.cos(ang),ay2+6*Math.sin(ang));
+            ctx.lineTo(ax2-5*Math.cos(ang-0.55),ay2-5*Math.sin(ang-0.55));
+            ctx.lineTo(ax2-5*Math.cos(ang+0.55),ay2-5*Math.sin(ang+0.55));
+            ctx.closePath(); ctx.fillStyle=COLORS.fieldLine; ctx.fill();
+          }
+        }
+      }
+    } else if (c.q < 0) {
+      const n = Math.round(Math.abs(c.q) * 4);
+      for (let i = 0; i < n; i++) {
+        const angle = (2 * Math.PI * i) / n;
+        let x = c.x + 18 * Math.cos(angle), y = c.y + 18 * Math.sin(angle);
+        const pts = [{x,y}];
+        let hitPos = false;
+        for (let s = 0; s < steps; s++) {
+          const [ex,ey] = vecField(charges, x, y);
+          const mag = Math.sqrt(ex*ex+ey*ey);
+          if (mag < 0.01) break;
+          x -= (ds*ex)/mag; y -= (ds*ey)/mag;
+          if (x<-10||x>w+10||y<-10||y>h+10) break;
+          for (const cc of charges) {
+            if (cc.q>0 && Math.sqrt((x-cc.x)**2+(y-cc.y)**2)<14) { hitPos=true; break; }
+          }
+          pts.push({x,y});
+          if (hitPos) break;
+        }
+        if (pts.length > 1) {
+          ctx.beginPath();
+          ctx.moveTo(pts[pts.length-1].x, pts[pts.length-1].y);
+          for (let j=pts.length-2; j>=0; j--) ctx.lineTo(pts[j].x, pts[j].y);
+          ctx.strokeStyle = COLORS.fieldLine; ctx.lineWidth = 1.5; ctx.stroke();
+          const arrowIdx = Math.max(1, Math.floor(pts.length * 0.3));
+          if (arrowIdx < pts.length) {
+            const ap = pts[arrowIdx];
+            const prevP = pts[Math.max(0, arrowIdx-1)];
+            const adx = prevP.x-ap.x, ady = prevP.y-ap.y;
+            const amag = Math.sqrt(adx*adx+ady*ady);
+            if (amag>0.1 && ap.x>0 && ap.x<w && ap.y>0 && ap.y<h) {
+              const ang = Math.atan2(ady, adx);
+              ctx.beginPath();
+              ctx.moveTo(ap.x+6*Math.cos(ang), ap.y+6*Math.sin(ang));
+              ctx.lineTo(ap.x-5*Math.cos(ang-0.55), ap.y-5*Math.sin(ang-0.55));
+              ctx.lineTo(ap.x-5*Math.cos(ang+0.55), ap.y-5*Math.sin(ang+0.55));
+              ctx.closePath(); ctx.fillStyle=COLORS.fieldLine; ctx.fill();
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function drawHeatmap(ctx, charges, w, h) {
+  if (!charges.length) return;
+  const step = 10;
+  for (let x=0; x<w; x+=step) {
+    for (let y=0; y<h; y+=step) {
+      const [ex,ey]=vecField(charges,x,y);
+      const mag=Math.sqrt(ex*ex+ey*ey);
+      const norm=Math.min(1,Math.log10(mag+1)/3.5);
+      if(norm<0.05) continue;
+      ctx.fillStyle=`rgba(255,${Math.round(220-norm*180)},${Math.round(180-norm*180)},${norm*0.2})`;
+      ctx.fillRect(x,y,step,step);
+    }
+  }
+}
+
+function drawVectors(ctx, charges, w, h) {
+  const step=40;
+  for(let x=step;x<w;x+=step) {
+    for(let y=step;y<h;y+=step) {
+      const [ex,ey]=vecField(charges,x,y);
+      const mag=Math.sqrt(ex*ex+ey*ey);
+      if(mag<0.05) continue;
+      const norm=Math.min(1,Math.log10(mag+1)/3.5);
+      const len=5+norm*14;
+      const ax=(ex/mag)*len, ay=(ey/mag)*len;
+      const alpha=0.2+norm*0.6;
+      ctx.beginPath(); ctx.moveTo(x-ax,y-ay); ctx.lineTo(x+ax,y+ay);
+      ctx.strokeStyle=`rgba(30,41,59,${alpha})`; ctx.lineWidth=1.3; ctx.stroke();
+      const angle=Math.atan2(ay,ax);
+      ctx.beginPath();
+      ctx.moveTo(x+ax,y+ay);
+      ctx.lineTo(x+ax-4*Math.cos(angle-0.5),y+ay-4*Math.sin(angle-0.5));
+      ctx.lineTo(x+ax-4*Math.cos(angle+0.5),y+ay-4*Math.sin(angle+0.5));
+      ctx.fillStyle=`rgba(30,41,59,${alpha})`; ctx.fill();
+    }
+  }
+}
+
+function drawEquipotential(ctx, charges, w, h) {
+  if(!charges.length) return;
+  const step=6, data=[];
+  let minV=Infinity, maxV=-Infinity;
+  for(let y=0;y<h;y+=step) {
+    const row=[];
+    for(let x=0;x<w;x+=step) {
+      const v=potential(charges,x,y);
+      if(v!==null){if(v<minV)minV=v;if(v>maxV)maxV=v;}
+      row.push(v);
+    }
+    data.push(row);
+  }
+  for(let l=1;l<18;l++) {
+    const t=l/18, threshold=minV+t*(maxV-minV);
+    ctx.beginPath();
+    for(let yi=0;yi<data.length-1;yi++) {
+      for(let xi=0;xi<data[0].length-1;xi++) {
+        const v00=data[yi][xi],v10=data[yi][xi+1],v01=data[yi+1][xi];
+        if(v00===null||v10===null||v01===null) continue;
+        const x0=xi*step,y0=yi*step;
+        if((v00>=threshold)!==(v10>=threshold)){
+          const frac=(threshold-v00)/(v10-v00);
+          ctx.moveTo(x0+frac*step-0.5,y0-0.5);ctx.lineTo(x0+frac*step+0.5,y0+0.5);
+        }
+        if((v00>=threshold)!==(v01>=threshold)){
+          const frac=(threshold-v00)/(v01-v00);
+          ctx.moveTo(x0-0.5,y0+frac*step-0.5);ctx.lineTo(x0+0.5,y0+frac*step+0.5);
+        }
+      }
+    }
+    ctx.strokeStyle=`hsla(${140+t*100},55%,42%,0.5)`;ctx.lineWidth=1.6;ctx.stroke();
+  }
+}
+
+function drawCharges(ctx, charges) {
+  for(const c of charges) {
+    const grad=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,28);
+    grad.addColorStop(0,c.q>0?"rgba(220,38,38,0.18)":"rgba(37,99,235,0.18)");
+    grad.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=grad;ctx.beginPath();ctx.arc(c.x,c.y,28,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(c.x,c.y,16,0,Math.PI*2);
+    ctx.fillStyle=c.q>0?COLORS.positive:COLORS.negative;ctx.fill();
+    ctx.strokeStyle=c.q>0?"#991b1b":"#1e40af";ctx.lineWidth=2;ctx.stroke();
+    ctx.fillStyle="#fff";ctx.font="bold 11px monospace";
+    ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillText(`${c.q>0?"+":""}${c.q}C`,c.x,c.y);
+  }
+}
+
+// Mode 2: Test charge
+function TestChargeSimulation({charges,width,height}) {
+  const canvasRef=useRef(null);
+  const animRef=useRef(null);
+  const stateRef=useRef({x:0,y:0,vx:0,vy:0,running:false,trail:[],pe:0,ke:0,totalE:0});
+  const startSim=useCallback((sx,sy)=>{
+    const s=stateRef.current;
+    s.x=sx;s.y=sy;s.vx=0;s.vy=0;s.running=true;s.trail=[{x:sx,y:sy}];
+    const v=potential(charges,sx,sy);s.pe=v!==null?v:0;s.ke=0;s.totalE=Math.abs(s.pe)||1;
+  },[charges]);
+  useEffect(()=>{
+    const canvas=canvasRef.current;if(!canvas)return;
+    const ctx=canvas.getContext("2d");
+    const mass=0.5,dt=0.15;
+    const animate=()=>{
+      ctx.fillStyle=COLORS.canvasBg;ctx.fillRect(0,0,width,height);
+      drawGrid(ctx,width,height);drawHeatmap(ctx,charges,width,height);
+      drawEquipotential(ctx,charges,width,height);drawCharges(ctx,charges);
+      const s=stateRef.current;
+      if(s.running){
+        for(let i=0;i<5;i++){
+          const [ex,ey]=vecField(charges,s.x,s.y);
+          s.vx+=(ex/mass)*dt;s.vy+=(ey/mass)*dt;
+          const speed=Math.sqrt(s.vx**2+s.vy**2);
+          if(speed>15){s.vx=(s.vx/speed)*15;s.vy=(s.vy/speed)*15;}
+          s.x+=s.vx*dt;s.y+=s.vy*dt;
+          s.trail.push({x:s.x,y:s.y});if(s.trail.length>1000)s.trail.shift();
+        }
+        s.ke=0.5*mass*(s.vx**2+s.vy**2);
+        const v=potential(charges,s.x,s.y);s.pe=v!==null?v:0;
+        if(s.x<-20||s.x>width+20||s.y<-20||s.y>height+20)s.running=false;
+        for(const c of charges){if(Math.sqrt((s.x-c.x)**2+(s.y-c.y)**2)<16){s.running=false;break;}}
+      }
+      if(s.trail.length>1){
+        ctx.beginPath();ctx.moveTo(s.trail[0].x,s.trail[0].y);
+        for(let i=1;i<s.trail.length;i++)ctx.lineTo(s.trail[i].x,s.trail[i].y);
+        ctx.strokeStyle="rgba(124,58,237,0.45)";ctx.lineWidth=2.5;ctx.stroke();
+      }
+      if(s.trail.length>0){
+        const last=s.trail[s.trail.length-1];
+        ctx.beginPath();ctx.arc(last.x,last.y,8,0,Math.PI*2);
+        ctx.fillStyle="#7c3aed";ctx.fill();ctx.strokeStyle="#5b21b6";ctx.lineWidth=2;ctx.stroke();
+        ctx.fillStyle="#fff";ctx.font="bold 10px monospace";ctx.textAlign="center";ctx.textBaseline="middle";
+        ctx.fillText("+",last.x,last.y);
+      }
+      const barX=width-100,barY=30,barH=160;
+      ctx.fillStyle="rgba(255,255,255,0.92)";ctx.strokeStyle=COLORS.border;ctx.lineWidth=1;
+      ctx.beginPath();ctx.roundRect(barX-15,barY-20,100,barH+60,8);ctx.fill();ctx.stroke();
+      const maxE=s.totalE||1;
+      const peH=Math.min(barH,(Math.abs(s.pe)/maxE)*barH*0.4);
+      const keH=Math.min(barH,(Math.abs(s.ke)/maxE)*barH*0.4);
+      ctx.fillStyle=COLORS.energy;
+      ctx.beginPath();ctx.roundRect(barX,barY+barH-peH,22,peH,3);ctx.fill();
+      ctx.fillStyle=COLORS.kinetic;
+      ctx.beginPath();ctx.roundRect(barX+35,barY+barH-keH,22,keH,3);ctx.fill();
+      ctx.fillStyle=COLORS.text;ctx.font="bold 10px sans-serif";ctx.textAlign="center";
+      ctx.fillText("PE",barX+11,barY+barH+18);ctx.fillText("KE",barX+46,barY+barH+18);
+      ctx.fillStyle=COLORS.textDim;ctx.font="bold 11px sans-serif";ctx.fillText("에너지",barX+28,barY-6);
+      animRef.current=requestAnimationFrame(animate);
+    };
+    animate();
+    return ()=>{if(animRef.current)cancelAnimationFrame(animRef.current);};
+  },[charges,width,height]);
+  const handleClick=(e)=>{
+    const rect=canvasRef.current.getBoundingClientRect();
+    const x=(e.clientX-rect.left)*(width/rect.width),y=(e.clientY-rect.top)*(height/rect.height);
+    for(const c of charges){if(Math.sqrt((x-c.x)**2+(y-c.y)**2)<18)return;}
+    startSim(x,y);
+  };
+  return React.createElement("canvas",{ref:canvasRef,width:width,height:height,onClick:handleClick,
+    style:{width:"100%",height:"100%",cursor:"crosshair"}});
+}
+
+// Mode 4: Current & Resistance
+function CurrentResistanceMode() {
+  const cW=400,cH=250;
+  const canvasRef=useRef(null);
+  const animRef=useRef(null);
+  const [voltage,setVoltage]=useState(6);
+  const [resistance,setResistance]=useState(3);
+  const particlesRef=useRef([]);
+
+  useEffect(()=>{
+    const canvas=canvasRef.current;if(!canvas)return;
+    const ctx=canvas.getContext("2d");
+    const current=voltage/resistance;
+    const speed=Math.min(4,current*0.8);
+    const numCharges=Math.max(4,Math.min(14,Math.round(current*3)));
+    const pathTop=cH*0.25,pathBot=cH*0.72;
+    const battL=cW*0.1,battR=cW*0.9;
+    const resX1=cW*0.38,resX2=cW*0.62;
+    const segs=[
+      {x1:battL,y1:pathTop,x2:resX1,y2:pathTop},
+      {x1:resX1,y1:pathTop,x2:resX2,y2:pathTop,isRes:true},
+      {x1:resX2,y1:pathTop,x2:battR,y2:pathTop},
+      {x1:battR,y1:pathTop,x2:battR,y2:pathBot},
+      {x1:battR,y1:pathBot,x2:battL,y2:pathBot},
+      {x1:battL,y1:pathBot,x2:battL,y2:pathTop,isBatt:true},
+    ];
+    let totalLen=0;
+    const segLens=segs.map(s=>{const l=Math.sqrt((s.x2-s.x1)**2+(s.y2-s.y1)**2);totalLen+=l;return l;});
+    if(particlesRef.current.length!==numCharges){
+      particlesRef.current=[];
+      for(let i=0;i<numCharges;i++)particlesRef.current.push({t:(i/numCharges)*totalLen});
+    }
+    function getPos(dist){
+      let d=((dist%totalLen)+totalLen)%totalLen,cum=0;
+      for(let i=0;i<segs.length;i++){
+        if(d<=cum+segLens[i]){
+          const frac=(d-cum)/segLens[i];const s=segs[i];
+          return{x:s.x1+(s.x2-s.x1)*frac,y:s.y1+(s.y2-s.y1)*frac,inRes:!!s.isRes,inBatt:!!s.isBatt};
+        }
+        cum+=segLens[i];
+      }
+      return{x:segs[0].x1,y:segs[0].y1};
+    }
+    let frame=0;
+    const animate=()=>{
+      frame++;
+      ctx.fillStyle=COLORS.canvasBg;ctx.fillRect(0,0,cW,cH);
+      drawGrid(ctx,cW,cH);
+      ctx.strokeStyle="#94a3b8";ctx.lineWidth=2;ctx.lineCap="round";
+      ctx.beginPath();ctx.moveTo(battL,pathTop);ctx.lineTo(resX1,pathTop);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(resX2,pathTop);ctx.lineTo(battR,pathTop);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(battR,pathTop);ctx.lineTo(battR,pathBot);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(battR,pathBot);ctx.lineTo(battL,pathBot);ctx.stroke();
+      const midY=(pathTop+pathBot)/2;
+      ctx.beginPath();ctx.moveTo(battL,pathBot);ctx.lineTo(battL,midY+14);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(battL,midY-14);ctx.lineTo(battL,pathTop);ctx.stroke();
+      const zigs=Math.max(3,Math.min(7,Math.round(resistance*1.1)));
+      const zigW=(resX2-resX1)/(zigs*2),zigH=10+resistance*1.5;
+      ctx.beginPath();ctx.moveTo(resX1,pathTop);
+      for(let i=0;i<zigs;i++){ctx.lineTo(resX1+zigW*(i*2+1),pathTop-zigH);ctx.lineTo(resX1+zigW*(i*2+2),pathTop+zigH);}
+      ctx.lineTo(resX2,pathTop);ctx.strokeStyle="#475569";ctx.lineWidth=2;ctx.stroke();
+      ctx.beginPath();ctx.moveTo(battL-10,midY-10);ctx.lineTo(battL+10,midY-10);
+      ctx.strokeStyle=COLORS.positive;ctx.lineWidth=3;ctx.stroke();
+      ctx.beginPath();ctx.moveTo(battL-6,midY+10);ctx.lineTo(battL+6,midY+10);
+      ctx.strokeStyle=COLORS.negative;ctx.lineWidth=3;ctx.stroke();
+      ctx.fillStyle=COLORS.positive;ctx.font="bold 12px sans-serif";ctx.textAlign="center";
+      ctx.fillText("+",battL,midY-18);
+      ctx.fillStyle=COLORS.negative;ctx.fillText("−",battL,midY+24);
+      ctx.fillStyle=COLORS.text;ctx.font="bold 11px sans-serif";ctx.fillText(`${voltage}V`,battL,midY+1);
+      ctx.fillStyle=COLORS.text;ctx.font="bold 10px sans-serif";ctx.textAlign="center";
+      ctx.fillText(`R = ${resistance}Ω`,(resX1+resX2)/2,pathTop-18-resistance*1.5);
+      ctx.fillStyle=COLORS.textDim;ctx.font="10px sans-serif";
+      ctx.fillText("전류 방향 →",(resX2+battR)/2,pathTop-8);
+      for(const p of particlesRef.current){
+        p.t+=speed;const pos=getPos(p.t);
+        let dy=0;if(pos.inRes)dy=Math.sin(p.t*0.25+frame*0.12)*(3+resistance*1);
+        const r=pos.inRes?3:5;
+        ctx.beginPath();ctx.arc(pos.x,pos.y+dy,r,0,Math.PI*2);
+        ctx.fillStyle=pos.inRes?"#f59e0b":COLORS.positive;ctx.fill();
+        ctx.strokeStyle=pos.inRes?"#b45309":"#991b1b";ctx.lineWidth=1;ctx.stroke();
+        ctx.fillStyle="#fff";ctx.font=`bold ${r<4?6:7}px monospace`;
+        ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("+",pos.x,pos.y+dy);
+      }
+      ctx.fillStyle="rgba(255,255,255,0.93)";ctx.strokeStyle=COLORS.border;ctx.lineWidth=1;
+      ctx.beginPath();ctx.roundRect(cW-145,8,138,80,8);ctx.fill();ctx.stroke();
+      ctx.fillStyle=COLORS.text;ctx.font="bold 11px sans-serif";ctx.textAlign="left";
+      ctx.fillText("옴의 법칙: I = V / R",cW-137,26);
+      ctx.font="11px sans-serif";ctx.fillStyle=COLORS.textDim;
+      ctx.fillText(`전압 V = ${voltage}V`,cW-137,42);
+      ctx.fillText(`저항 R = ${resistance}Ω`,cW-137,56);
+      ctx.fillStyle=COLORS.positive;ctx.font="bold 12px sans-serif";
+      ctx.fillText(`전류 I = ${current.toFixed(2)}A`,cW-137,76);
+      ctx.fillStyle=COLORS.text;ctx.font="bold 12px sans-serif";ctx.textAlign="center";
+      ctx.fillText(`I = V / R = ${voltage} / ${resistance} = ${current.toFixed(2)} A`,cW/2,pathBot+32);
+      animRef.current=requestAnimationFrame(animate);
+    };
+    animate();
+    return()=>{if(animRef.current)cancelAnimationFrame(animRef.current);};
+  },[voltage,resistance]);
+
+  const sliderBox=(color,bg,borderC,label,val,min,max,setter)=>
+    React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:4,minWidth:180,background:bg,border:`1px solid ${borderC}`,borderRadius:10,padding:"8px 14px"}},
+      React.createElement("label",{style:{fontSize:13,fontWeight:700,color:COLORS.text}},
+        `${label}: `,React.createElement("span",{style:{color:color,fontSize:15}},`${val}${label.includes("V")?"V":"Ω"}`)),
+      React.createElement("input",{type:"range",min,max,step:1,value:val,onChange:e=>setter(+e.target.value),
+        style:{width:"100%",accentColor:color}}));
+
+  return React.createElement("div",{style:{width:"100%",maxWidth:400,display:"flex",flexDirection:"column",alignItems:"center"}},
+    React.createElement("canvas",{ref:canvasRef,width:cW,height:cH,
+      style:{width:"100%",height:"auto",border:`1.5px solid ${COLORS.border}`,borderRadius:10,boxShadow:"0 2px 12px rgba(0,0,0,0.06)"}}),
+    React.createElement("div",{style:{display:"flex",gap:16,marginTop:10,justifyContent:"center",flexWrap:"wrap"}},
+      sliderBox(COLORS.positive,"#fef2f2","#fecaca","전압 (V)",voltage,1,12,setVoltage),
+      sliderBox(COLORS.negative,"#eff6ff","#bfdbfe","저항 (Ω)",resistance,1,10,setResistance)));
+}
+
+// Main App
+function ElectricFieldLab() {
+  const [mode,setMode]=useState(0);
+  const [charges,setCharges]=useState([{id:1,x:280,y:250,q:2},{id:2,x:520,y:250,q:-2}]);
+  const [dragging,setDragging]=useState(null);
+  const [showLines,setShowLines]=useState(true);
+  const [showVectors,setShowVectors]=useState(false);
+  const [showHeat,setShowHeat]=useState(true);
+  const [nextId,setNextId]=useState(3);
+  const [probePos,setProbePos]=useState(null);
+  const [newQ,setNewQ]=useState(1);
+  const canvasRef=useRef(null);
+
+  const modeNames=["전기력 & 전기장","전위 & 에너지","전류 & 저항"];
+  const modeIcons=["⚡","📊","🔋"];
+  const modeDescs=[
+    "전하를 드래그하여 이동 · 캔버스 클릭으로 전기장 측정",
+    "캔버스 클릭 → 시험전하(+) 배치 → 에너지 변환 관찰",
+    "전압·저항 슬라이더로 전류의 변화를 관찰",
+  ];
+
+  const addCharge=(pos)=>{
+    const q=pos?Math.abs(newQ):-Math.abs(newQ);
+    setCharges(prev=>[...prev,{id:nextId,x:120+Math.random()*160,y:180+Math.random()*140,q}]);
+    setNextId(n=>n+1);
+  };
+
+  useEffect(()=>{
+    if(mode>=1)return;
+    const canvas=canvasRef.current;if(!canvas)return;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle=COLORS.canvasBg;ctx.fillRect(0,0,W,H);
+    drawGrid(ctx,W,H);
+    if(showHeat)drawHeatmap(ctx,charges,W,H);
+    if(showLines)drawFieldLines(ctx,charges,W,H);
+    if(showVectors)drawVectors(ctx,charges,W,H);
+    drawCharges(ctx,charges);
+    if(probePos){
+      const [ex,ey]=vecField(charges,probePos.x,probePos.y);
+      const mag=Math.sqrt(ex*ex+ey*ey);
+      ctx.beginPath();ctx.arc(probePos.x,probePos.y,5,0,Math.PI*2);
+      ctx.fillStyle="#f59e0b";ctx.fill();ctx.strokeStyle="#d97706";ctx.lineWidth=2;ctx.stroke();
+      ctx.fillStyle=COLORS.text;ctx.font="bold 12px monospace";ctx.textAlign="left";
+      ctx.fillText(`E = ${mag.toFixed(2)} N/C`,probePos.x+12,probePos.y-10);
+      if(mag>0.01){
+        const len=35,ax=(ex/mag)*len,ay=(ey/mag)*len;
+        ctx.beginPath();ctx.moveTo(probePos.x,probePos.y);ctx.lineTo(probePos.x+ax,probePos.y+ay);
+        ctx.strokeStyle="#f59e0b";ctx.lineWidth=2.5;ctx.stroke();
+        const angle=Math.atan2(ay,ax);
+        ctx.beginPath();
+        ctx.moveTo(probePos.x+ax,probePos.y+ay);
+        ctx.lineTo(probePos.x+ax-7*Math.cos(angle-0.4),probePos.y+ay-7*Math.sin(angle-0.4));
+        ctx.lineTo(probePos.x+ax-7*Math.cos(angle+0.4),probePos.y+ay-7*Math.sin(angle+0.4));
+        ctx.closePath();ctx.fillStyle="#f59e0b";ctx.fill();
+      }
+    }
+  },[charges,mode,showLines,showVectors,showHeat,probePos]);
+
+  const handleMouseDown=(e)=>{
+    if(mode>=1)return;
+    const rect=canvasRef.current.getBoundingClientRect();
+    const mx=(e.clientX-rect.left)*(W/rect.width),my=(e.clientY-rect.top)*(H/rect.height);
+    for(const c of charges){if(Math.sqrt((mx-c.x)**2+(my-c.y)**2)<18){setDragging(c.id);return;}}
+    if(mode===0)setProbePos({x:mx,y:my});
+  };
+  const handleMouseMove=(e)=>{
+    if(!dragging)return;
+    const rect=canvasRef.current.getBoundingClientRect();
+    const mx=(e.clientX-rect.left)*(W/rect.width),my=(e.clientY-rect.top)*(H/rect.height);
+    setCharges(prev=>prev.map(c=>c.id===dragging?{...c,x:mx,y:my}:c));
+  };
+
+  const btnS=(active)=>({
+    padding:"8px 14px",border:`1.5px solid ${active?COLORS.accent:COLORS.border}`,
+    borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:active?700:500,
+    background:active?COLORS.accent:"#fff",color:active?"#fff":COLORS.text,
+    transition:"all 0.15s",whiteSpace:"nowrap"});
+
+  const e=React.createElement;
+
+  // Legend items per mode
+  const legends = [
+    [["━ 전기력선",null],["● 양전하",COLORS.positive],["● 음전하",COLORS.negative],["🔶 클릭: 전기장 측정",null]],
+    [["■ 퍼텐셜 에너지",COLORS.energy],["■ 운동 에너지",COLORS.kinetic],["━ 등전위선",null],["🟣 클릭: 시험전하",null]],
+    [["● 전하 이동",COLORS.positive],["● 저항 통과 중","#f59e0b"],["슬라이더로 전압·저항 조절",null]],
+  ];
+
+  return e("div",{style:{background:COLORS.bg,minHeight:"100vh",color:COLORS.text,fontFamily:"-apple-system,'Noto Sans KR',sans-serif",display:"flex",flexDirection:"column",alignItems:"center",padding:"16px 12px",boxSizing:"border-box"}},
+    e("h1",{style:{fontSize:24,fontWeight:800,margin:"0 0 2px"}},"⚡ 전하 실험실"),
+    e("p",{style:{color:COLORS.textDim,fontSize:13,margin:"0 0 14px"}},"Electric Field Lab"),
+
+    // Mode tabs
+    e("div",{style:{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap",justifyContent:"center"}},
+      modeNames.map((name,i)=>e("button",{key:i,onClick:()=>{setMode(i);setProbePos(null);},style:btnS(mode===i)},modeIcons[i]+" "+name))),
+    e("p",{style:{color:COLORS.textDim,fontSize:12,margin:"0 0 10px",textAlign:"center"}},modeDescs[mode]),
+
+    // Controls for mode 0-2
+    mode<2 && e("div",{style:{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",justifyContent:"center",alignItems:"center"}},
+      e("button",{onClick:()=>addCharge(true),style:{...btnS(false),background:COLORS.positive,color:"#fff",borderColor:COLORS.positive,padding:"6px 14px"}},"+ 양전하"),
+      e("button",{onClick:()=>addCharge(false),style:{...btnS(false),background:COLORS.negative,color:"#fff",borderColor:COLORS.negative,padding:"6px 14px"}},"− 음전하"),
+      e("div",{style:{display:"flex",alignItems:"center",gap:6,background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding:"4px 12px"}},
+        e("span",{style:{fontSize:12,color:COLORS.textDim}},"전하량:"),
+        e("input",{type:"range",min:1,max:5,step:1,value:newQ,onChange:ev=>setNewQ(+ev.target.value),style:{width:60,accentColor:COLORS.accent}}),
+        e("span",{style:{fontSize:14,fontWeight:700,minWidth:28}},newQ+"C")),
+      e("button",{onClick:()=>setCharges([]),style:{...btnS(false),background:"#f8fafc"}},"초기화"),
+      mode===0 && e(React.Fragment,null,
+        e("span",{style:{width:1,height:28,background:COLORS.border}}),
+        e("label",{style:{fontSize:12,display:"flex",alignItems:"center",gap:4,cursor:"pointer"}},
+          e("input",{type:"checkbox",checked:showLines,onChange:()=>setShowLines(!showLines)})," 전기력선"),
+        e("label",{style:{fontSize:12,display:"flex",alignItems:"center",gap:4,cursor:"pointer"}},
+          e("input",{type:"checkbox",checked:showVectors,onChange:()=>setShowVectors(!showVectors)})," 벡터"),
+        e("label",{style:{fontSize:12,display:"flex",alignItems:"center",gap:4,cursor:"pointer"}},
+          e("input",{type:"checkbox",checked:showHeat,onChange:()=>setShowHeat(!showHeat)})," 세기맵"))),
+
+    // Charge list
+    mode<2 && charges.length>0 && e("div",{style:{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",justifyContent:"center"}},
+      charges.map(c=>e("div",{key:c.id,style:{background:c.q>0?"#fef2f2":"#eff6ff",border:`1px solid ${c.q>0?"#fecaca":"#bfdbfe"}`,borderRadius:8,padding:"4px 10px",fontSize:12,display:"flex",alignItems:"center",gap:6}},
+        e("span",{style:{fontWeight:700,color:c.q>0?COLORS.positive:COLORS.negative}},(c.q>0?"+":"")+c.q+"C"),
+        e("input",{type:"range",min:1,max:5,step:1,value:Math.abs(c.q),
+          onChange:ev=>setCharges(prev=>prev.map(cc=>cc.id===c.id?{...cc,q:cc.q>0?+ev.target.value:-ev.target.value}:cc)),
+          style:{width:50,accentColor:c.q>0?COLORS.positive:COLORS.negative}}),
+        e("span",{style:{color:COLORS.textDim,fontSize:11}},`(${Math.round(c.x)},${Math.round(c.y)})`),
+        e("button",{onClick:()=>setCharges(prev=>prev.filter(cc=>cc.id!==c.id)),
+          style:{background:"none",border:"none",color:COLORS.textDim,cursor:"pointer",fontSize:16,padding:0}},"×")))),
+
+    // Canvas area
+    mode===2 ? e(CurrentResistanceMode,{})
+    : e("div",{style:{border:`1.5px solid ${COLORS.border}`,borderRadius:12,overflow:"hidden",background:COLORS.canvasBg,width:"100%",maxWidth:W,aspectRatio:`${W}/${H}`,boxShadow:"0 2px 12px rgba(0,0,0,0.06)"}},
+      mode===1 ? e(TestChargeSimulation,{charges,width:W,height:H})
+      : e("canvas",{ref:canvasRef,width:W,height:H,
+          style:{width:"100%",height:"100%",cursor:dragging?"grabbing":"crosshair"},
+          onMouseDown:handleMouseDown,onMouseMove:handleMouseMove,
+          onMouseUp:()=>setDragging(null),onMouseLeave:()=>setDragging(null)})),
+
+    // Legend
+    e("div",{style:{marginTop:10,display:"flex",gap:16,fontSize:12,color:COLORS.textDim,flexWrap:"wrap",justifyContent:"center"}},
+      legends[mode].map(([text,color],i)=>e("span",{key:i,style:color?{color}:{}},text)))
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(ElectricFieldLab));
+</script>
+</body>
+</html>
